@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { sampleContour } from '../core/spline';
-import type { Contour, PointEvidence, ResolvedPoint, SegmentDiagnostic } from '../core/types';
+import type {
+  Contour,
+  PointEvidence,
+  PropagationMode,
+  ResolvedPoint,
+  SegmentDiagnostic,
+} from '../core/types';
 import { dist } from '../core/vec';
 import {
   arrow,
@@ -60,6 +66,8 @@ export interface CanvasViewProps {
   selectedId: string | null;
   showEvidence: boolean;
   showNormals: boolean;
+  /** Propagation model in force per segment start-id, for segment tinting. */
+  segmentModes?: Map<string, { mode: PropagationMode; locallySelected: boolean }>;
   onSelect: (id: string | null) => void;
   onDrag: (id: string, point: { x: number; y: number }) => void;
   onDragEnd: () => void;
@@ -86,6 +94,7 @@ export function CanvasView(props: CanvasViewProps) {
     selectedId,
     showEvidence,
     showNormals,
+    segmentModes,
     onSelect,
     onDrag,
     onDragEnd,
@@ -171,6 +180,13 @@ export function CanvasView(props: CanvasViewProps) {
 
     const strokeFor = (index: number): { color: string; width: number; dash: number[] } => {
       const status = statusBySeg.get(index)?.status;
+      const startId = contour.points[index]?.id;
+      const mode = startId ? segmentModes?.get(startId) : undefined;
+      // Segment-local independent spans get their own solid tint so the editor
+      // can see where local selection replaced the interval model.
+      if (mode?.locallySelected && mode.mode === 'independent' && status !== 'conflict') {
+        return { color: THEME.contourIndependent, width: 2, dash: [10, 3] };
+      }
       if (status === 'conflict') return { color: THEME.contourConflict, width: 2, dash: [] };
       if (status === 'occluded') return { color: THEME.contourOccluded, width: 1.5, dash: [5, 4] };
       if (status === 'weak') return { color: THEME.contourWeak, width: 1.5, dash: [7, 3] };
@@ -268,6 +284,7 @@ export function CanvasView(props: CanvasViewProps) {
     getFrameImage,
     resolvedById,
     evidenceById,
+    segmentModes,
   ]);
 
   const pointerToVideo = (e: React.PointerEvent<HTMLCanvasElement>) => {

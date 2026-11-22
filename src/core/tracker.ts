@@ -729,7 +729,7 @@ function deadEvidence(
   };
 }
 
-function fuseConfidenceMath(ncc: number, edge: number, edgeMin: number): number {
+export function fuseConfidenceMath(ncc: number, edge: number, edgeMin: number): number {
   const nccScore = Math.max(0, Math.min(1, (ncc - 0.2) / 0.7));
   const edgeScore = Math.max(0, Math.min(1, (edge - edgeMin) / Math.max(1e-6, 1 - edgeMin)));
   return Math.max(0, Math.min(1, 0.8 * nccScore + 0.2 * edgeScore));
@@ -867,6 +867,8 @@ export function mergeCandidates(
       edge: ev?.edge ?? 0,
       conflict: chosen.conflict,
       source: chosen.source,
+      propagationMode: ev?.propagationMode ?? 'joint',
+      locallySelected: ev?.locallySelected ?? false,
     });
   }
 

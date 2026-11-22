@@ -11,6 +11,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "bench": "tsx src/bench/run-bench.ts",
+    "experiment": "tsx src/bench/propagation-experiment.ts",
     "make-demo": "tsx scripts/make-demo.ts",
     "e2e": "playwright test",
     "check": "tsc --noEmit"

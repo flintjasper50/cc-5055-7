@@ -23,9 +23,18 @@ export const SCENARIO_LABELS: Record<ScenarioName, string> = {
   deformation: 'Deformation',
   occlusion: 'Partial occlusion',
   combined: 'Combined',
+  'weak-edge': 'Weak edge / low texture',
+  'local-occlusion': 'Local occlusion',
 };
 
-export const SCENARIO_ORDER: ScenarioName[] = ['rotation', 'deformation', 'occlusion', 'combined'];
+export const SCENARIO_ORDER: ScenarioName[] = [
+  'rotation',
+  'deformation',
+  'occlusion',
+  'combined',
+  'weak-edge',
+  'local-occlusion',
+];
 
 /**
  * Generates a deterministic synthetic clip in-browser and keeps its luma

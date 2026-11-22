@@ -484,3 +484,48 @@ button.small {
 .param input[type='range'] {
   accent-color: var(--accent);
 }
+
+/* Propagation model card and reopen controls */
+.segment-switch {
+  border-top: 1px solid rgba(148, 163, 184, 0.18);
+  margin-top: 8px;
+  padding-top: 8px;
+}
+.segment-switch h3 {
+  margin: 4px 0;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+.burden {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(148, 163, 184, 0.18);
+}
+.burden h3 {
+  margin: 4px 0;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+.file-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 10px;
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+}
+.file-btn input[type='file'] {
+  display: none;
+}
+.file-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}

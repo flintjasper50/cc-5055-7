@@ -75,6 +75,7 @@ export interface CanvasTheme {
   contourConflict: string;
   contourManual: string;
   contourKey: string;
+  contourIndependent: string;
   controlPoint: string;
   controlPointHidden: string;
   controlPointSelected: string;
@@ -92,6 +93,7 @@ export const THEME: CanvasTheme = {
   contourConflict: '#f87171',
   contourManual: '#60a5fa',
   contourKey: '#34d399',
+  contourIndependent: '#38bdf8',
   controlPoint: '#e2e8f0',
   controlPointHidden: '#64748b',
   controlPointSelected: '#fbbf24',

@@ -59,6 +59,10 @@ export interface PointEvidence {
    * report an occluded span as occluded.
    */
   templateNcc: number;
+  /** Which propagation model actually moved this point this frame. */
+  propagationMode?: PropagationMode;
+  /** Whether a segment-local constraint selected the model for this point. */
+  locallySelected?: boolean;
   source: EvidenceSource;
   hiddenReason?: 'low-ncc' | 'patch-out-of-bounds' | 'untrusted-seed' | 'template-mismatch' | 'no-transform';
 }
@@ -108,9 +112,48 @@ export interface ResolvedPoint extends ControlPoint {
   edge: number;
   conflict: boolean;
   source: EvidenceSource | 'blend';
+  /** Propagation model that produced the chosen position. */
+  propagationMode: PropagationMode;
+  /** True when a segment-local constraint (not the interval default) chose it. */
+  locallySelected: boolean;
 }
 
 export type AutoMethod = 'propagated' | 'manual' | 'keyframe';
+
+/**
+ * Propagation model selectable for a point/segment.
+ * - `joint`: every point moves under one robust global similarity with shape
+ *   regularisation (the original model).
+ * - `independent`: each control point follows its own local patch/edge evidence
+ *   without the global similarity voting, so local non-rigid motion is kept.
+ */
+export type PropagationMode = 'joint' | 'independent';
+
+/**
+ * Whether one model is used for the whole keyframe interval, or each contour
+ * segment picks its own model inside the interval.
+ */
+export type PropagationScope = 'interval' | 'segment';
+
+/**
+ * A local propagation constraint stored on the track. The boundary condition
+ * that distinguishes the two selection regimes:
+ * - scope `interval` with a uniform `mode` => one model between the keyframes;
+ * - scope `segment` => the model is chosen per contour segment (segmentModes),
+ *   indexed by the segment's start control-point id.
+ */
+export interface PropagationConstraint {
+  /** Open keyframe interval [left, right) the constraint applies to. */
+  left: number;
+  right: number;
+  scope: PropagationScope;
+  /** Uniform mode used when scope is `interval`. */
+  mode: PropagationMode;
+  /** Segment start-id -> mode, used when scope is `segment`. */
+  segmentModes: Record<string, PropagationMode>;
+  /** Why a segment was switched, keyed like segmentModes (editor/experiment). */
+  segmentReasons: Record<string, string>;
+}
 
 export interface AutoFrameResult {
   frame: number;
@@ -199,6 +242,12 @@ export interface Track {
   /** Automatic propagation layer. */
   auto: Record<number, AutoFrameResult>;
   params: TrackingParams;
+  /**
+   * Local constraints choosing the propagation model per interval or per
+   * contour segment. Editor decisions persist here so reopening the shot keeps
+   * the same joint/independent split.
+   */
+  constraints: PropagationConstraint[];
   /** Bumped on every edit; used to reject stale background results. */
   revision: number;
 }

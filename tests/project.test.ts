@@ -38,6 +38,8 @@ function resolvedFrom(contour: Contour, visibleIds: string[] = []): ResolvedPoin
     edge: 0.5,
     conflict: false,
     source: vis.has(p.id) ? 'image' : 'regularized',
+    propagationMode: 'joint',
+    locallySelected: false,
   }));
 }
 

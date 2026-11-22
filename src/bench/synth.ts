@@ -54,6 +54,15 @@ export interface SceneConfig {
   noise?: number;
   background?: { base: number; amplitude: number };
   object?: { base: number; amplitude: number };
+  /**
+   * Boundary softness in world pixels. Larger values spread the edge gradient
+   * over a wider transition, so normal-direction edge scans see a weak edge.
+   */
+  edgeSoftness?: number;
+  /** Multiplier on interior texture amplitude (0 = flat, hard to track). */
+  textureGain?: number;
+  /** Extra luma contrast of the object against the background. */
+  contrast?: number;
 }
 
 export interface TruthFrame {
@@ -159,6 +168,9 @@ function renderFrame(
   const noise = cfg.noise ?? 4;
   const bg = cfg.background ?? { base: 96, amplitude: 34 };
   const obj = cfg.object ?? { base: 186, amplitude: 46 };
+  const edgeSoftness = cfg.edgeSoftness ?? 0.8;
+  const textureGain = cfg.textureGain ?? 1;
+  const contrast = cfg.contrast ?? 1;
 
   const gray = new Uint8Array(width * height);
   const rgb = new Uint8ClampedArray(width * height * 4);
@@ -189,20 +201,22 @@ function renderFrame(
 
       // Object interior texture: coarse mottling plus a fine speckle field so
       // that patches straddling the boundary are not tangentially ambiguous.
+      // textureGain lets experiment clips flatten the interior (weak texture).
       const coarse = fbm(u * 0.16 + 40, v * 0.16 + 40, seed + 101);
       const fine = fbm(u * 0.6 + 9, v * 0.6 + 9, seed + 211);
       const texCombined = coarse * 0.6 + fine * 0.4;
-      const objValue = obj.base + (texCombined - 0.5) * 2 * obj.amplitude;
+      const objValue = obj.base + (texCombined - 0.5) * 2 * obj.amplitude * textureGain;
 
       let value: number;
-      if (signed <= -0.8) {
+      if (signed <= -edgeSoftness) {
         value = bgv;
-      } else if (signed >= 0.8) {
+      } else if (signed >= edgeSoftness) {
         value = objValue;
       } else {
-        // Soft anti-aliased boundary with a slight darker rim.
-        const t = (signed + 0.8) / 1.6;
-        const rim = -18 * Math.exp(-((signed / 0.45) ** 2));
+        // Soft anti-aliased boundary. edgeSoftness widens the transition so the
+        // gradient is weak (a low-contrast edge the tracker must cope with).
+        const t = (signed + edgeSoftness) / (2 * edgeSoftness);
+        const rim = -18 * contrast * Math.exp(-((signed / (0.45 * edgeSoftness)) ** 2));
         value = bgv * (1 - t) + (objValue + rim) * t;
       }
 
@@ -268,7 +282,13 @@ export function generateScene(cfg: SceneConfig): SyntheticClip {
 
 // ------------------------------------------------------------- scenarios ----
 
-export type ScenarioName = 'rotation' | 'deformation' | 'occlusion' | 'combined';
+export type ScenarioName =
+  | 'rotation'
+  | 'deformation'
+  | 'occlusion'
+  | 'combined'
+  | 'weak-edge'
+  | 'local-occlusion';
 
 export function scenarioConfig(name: ScenarioName, options: { width?: number; height?: number; frames?: number } = {}): SceneConfig {
   const width = options.width ?? 320;
@@ -358,9 +378,84 @@ export function scenarioConfig(name: ScenarioName, options: { width?: number; he
     };
   }
 
+  if (name === 'weak-edge') {
+    // Low-contrast, soft boundary with a flattened interior: edge scans return
+    // weak gradients and patches have little texture, while the object still
+    // deforms non-rigidly so a rigid joint prior and local evidence compete.
+    const frames = options.frames ?? 70;
+    return {
+      width,
+      height,
+      frameCount: frames,
+      fps: 30,
+      controlPoints: 26,
+      truthSamples: 260,
+      seed: 61,
+      noise: 5,
+      edgeSoftness: 5.5,
+      textureGain: 0.08,
+      contrast: 0.18,
+      object: { base: 122, amplitude: 16 },
+      background: { base: 112, amplitude: 18 },
+      motion: (f) => {
+        const t = frames > 1 ? f / (frames - 1) : 0;
+        return {
+          cx: width * 0.5 + Math.sin(t * Math.PI * 1.4) * 16,
+          cy: height * 0.5 + Math.cos(t * Math.PI) * 10,
+          angle: Math.sin(t * Math.PI * 2) * 0.18,
+          scale: 1 + 0.1 * Math.sin(t * Math.PI),
+          shape: {
+            radius: 54,
+            lobe3: 0.1 + 0.16 * Math.sin(t * Math.PI * 2.4),
+            phase3: 0.4 + t * 1.5,
+            lobe5: 0.05 + 0.1 * t,
+          },
+        };
+      },
+    };
+  }
+
+  if (name === 'local-occlusion') {
+    // A small occluder covers only a short contour span at a time, exercising
+    // per-segment model switching: the covered span needs the joint shape prior
+    // while the rest of the boundary keeps strong, locally-moving evidence.
+    const frames = options.frames ?? 70;
+    return {
+      width,
+      height,
+      frameCount: frames,
+      fps: 30,
+      controlPoints: 26,
+      truthSamples: 260,
+      seed: 73,
+      noise: 4,
+      motion: (f) => {
+        const t = frames > 1 ? f / (frames - 1) : 0;
+        return {
+          cx: width * 0.5 + Math.sin(t * Math.PI) * 20,
+          cy: height * 0.5 + t * 4,
+          angle: t * 0.4,
+          scale: 1 + 0.06 * Math.sin(t * Math.PI * 2),
+          shape: {
+            radius: 55,
+            lobe3: 0.12 + 0.12 * Math.sin(t * Math.PI * 2),
+            phase3: 0.4 + t * 1.1,
+            lobe5: 0.05 + 0.08 * t,
+          },
+        };
+      },
+      occluder: (f) => {
+        const t = frames > 1 ? f / (frames - 1) : 0;
+        // Compact square that sweeps across and only masks a few segments.
+        const x = width * 0.2 + t * width * 0.55;
+        const y = height * 0.5 - 18 + Math.sin(t * Math.PI * 2) * 26;
+        return { x, y, w: 30, h: 36 };
+      },
+    };
+  }
+
   // combined: rotation + deformation + a mid-clip occluder sweep
-  const frames = options.frames ?? 90;
-  return {
+  const frames = options.frames ?? 90;  return {
     width,
     height,
     frameCount: frames,

@@ -1,0 +1,148 @@
+{
+  "generatedAt": "2026-11-22T22:34:07.535Z",
+  "params": {
+    "patchRadius": 6,
+    "searchRadius": 10,
+    "nccThreshold": 0.55,
+    "edgeMin": 0.12,
+    "shapeRegularization": 0.65,
+    "conflictDistance": 6,
+    "edgeSearch": 4,
+    "edgeSnap": 0.7,
+    "subpixel": true
+  },
+  "scenarios": [
+    {
+      "scenario": "weak-edge",
+      "frames": 70,
+      "keyframes": [
+        0,
+        20,
+        40,
+        60,
+        69
+      ],
+      "pointTolerance": 2,
+      "sampleTolerance": 1.5,
+      "runs": [
+        {
+          "config": "joint-interval",
+          "scope": "interval",
+          "boundaryMean": 2.7533634978840857,
+          "boundaryP95": 8.605631693024046,
+          "boundaryHausdorff": 12.182515467719456,
+          "controlMean": 2.788820920443001,
+          "controlMax": 23.707079265870632,
+          "changedPoints": 801,
+          "totalPoints": 1690,
+          "redrawLength": 16409.704862646075,
+          "contourLength": 27739.12703580714,
+          "redrawFraction": 0.5915725048399524,
+          "visibleFrames": 65,
+          "occludedPointFrames": 699,
+          "locallySelectedPoints": 0
+        },
+        {
+          "config": "independent-interval",
+          "scope": "interval",
+          "boundaryMean": 3.1508742180574116,
+          "boundaryP95": 10.235827683699691,
+          "boundaryHausdorff": 14.165347020898968,
+          "controlMean": 2.8541416946651306,
+          "controlMax": 28.51497547898733,
+          "changedPoints": 822,
+          "totalPoints": 1690,
+          "redrawLength": 19924.08920942844,
+          "contourLength": 29266.962734456887,
+          "redrawFraction": 0.6807706488097995,
+          "visibleFrames": 65,
+          "occludedPointFrames": 535,
+          "locallySelectedPoints": 0
+        },
+        {
+          "config": "segment-local",
+          "scope": "segment",
+          "boundaryMean": 2.7785133610489936,
+          "boundaryP95": 8.298161579399235,
+          "boundaryHausdorff": 12.474719402897115,
+          "controlMean": 2.535728197998673,
+          "controlMax": 22.81600749005486,
+          "changedPoints": 759,
+          "totalPoints": 1690,
+          "redrawLength": 17863.48132329822,
+          "contourLength": 27838.68992320332,
+          "redrawFraction": 0.6416782317191282,
+          "visibleFrames": 65,
+          "occludedPointFrames": 627,
+          "locallySelectedPoints": 888
+        }
+      ]
+    },
+    {
+      "scenario": "local-occlusion",
+      "frames": 70,
+      "keyframes": [
+        0,
+        20,
+        40,
+        60,
+        69
+      ],
+      "pointTolerance": 2,
+      "sampleTolerance": 1.5,
+      "runs": [
+        {
+          "config": "joint-interval",
+          "scope": "interval",
+          "boundaryMean": 0.4578573314313004,
+          "boundaryP95": 1.2066031570747844,
+          "boundaryHausdorff": 2.0491727249422684,
+          "controlMean": 0.4323142236380998,
+          "controlMax": 6.404064069418956,
+          "changedPoints": 21,
+          "totalPoints": 1690,
+          "redrawLength": 547.9794855649004,
+          "contourLength": 24491.435067061713,
+          "redrawFraction": 0.022374331437273454,
+          "visibleFrames": 65,
+          "occludedPointFrames": 83,
+          "locallySelectedPoints": 0
+        },
+        {
+          "config": "independent-interval",
+          "scope": "interval",
+          "boundaryMean": 0.588782576097148,
+          "boundaryP95": 1.8753709868111608,
+          "boundaryHausdorff": 3.044338405728336,
+          "controlMean": 0.5262494942311504,
+          "controlMax": 16.18922751241461,
+          "changedPoints": 39,
+          "totalPoints": 1690,
+          "redrawLength": 1276.7359587403644,
+          "contourLength": 24669.24083243039,
+          "redrawFraction": 0.051754164930035325,
+          "visibleFrames": 65,
+          "occludedPointFrames": 40,
+          "locallySelectedPoints": 0
+        },
+        {
+          "config": "segment-local",
+          "scope": "segment",
+          "boundaryMean": 0.5575103703020605,
+          "boundaryP95": 1.4735523781106201,
+          "boundaryHausdorff": 3.0431580093160737,
+          "controlMean": 0.5173166011892004,
+          "controlMax": 17.905229165623894,
+          "changedPoints": 28,
+          "totalPoints": 1690,
+          "redrawLength": 1076.2776994973215,
+          "contourLength": 24701.08588078308,
+          "redrawFraction": 0.04357208038107517,
+          "visibleFrames": 65,
+          "occludedPointFrames": 66,
+          "locallySelectedPoints": 1530
+        }
+      ]
+    }
+  ]
+}

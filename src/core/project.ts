@@ -5,6 +5,9 @@ import type {
   Contour,
   ManualCorrection,
   ProjectState,
+  PropagationConstraint,
+  PropagationMode,
+  PropagationScope,
   ResolvedPoint,
   Track,
   TrackingParams,
@@ -49,6 +52,7 @@ export function emptyTrack(name: string, color: string, params: TrackingParams):
     manual: {},
     auto: {},
     params: { ...params },
+    constraints: [],
     revision: 0,
   };
 }
@@ -166,6 +170,120 @@ export function clearAutoInRange(track: Track, lo: number, hi: number): Track {
 
 export function clearAllAuto(track: Track): Track {
   return { ...track, auto: {} };
+}
+
+// ------------------------------------------------- propagation constraints ----
+
+/** Find the stored constraint governing interval [left, right), if any. */
+export function constraintForInterval(
+  track: Track,
+  left: number,
+  right: number,
+): PropagationConstraint | undefined {
+  return track.constraints.find((c) => c.left === left && c.right === right);
+}
+
+function upsertConstraint(track: Track, next: PropagationConstraint): Track {
+  const others = track.constraints.filter((c) => !(c.left === next.left && c.right === next.right));
+  return { ...track, constraints: [...others, next] };
+}
+
+/**
+ * Choose one propagation model for the whole interval (uniform selection).
+ * Switching the model changes every automatic frame inside the interval, so
+ * those frames are invalidated for recompute.
+ */
+export function setIntervalConstraint(
+  track: Track,
+  left: number,
+  right: number,
+  mode: PropagationMode,
+): Track {
+  const existing = constraintForInterval(track, left, right);
+  const constraint: PropagationConstraint = {
+    left,
+    right,
+    scope: 'interval',
+    mode,
+    segmentModes: existing?.scope === 'segment' ? existing.segmentModes : {},
+    segmentReasons: existing?.segmentReasons ?? {},
+  };
+  const replaced = upsertConstraint(track, constraint);
+  return bumpRevision(clearAutoInRange(replaced, left, right));
+}
+
+/**
+ * Switch a single contour segment (identified by its start control-point id)
+ * to a model, independently of the rest of the interval. The first such switch
+ * promotes the interval to `segment` scope; the interval-wide default is kept
+ * as the fallback for untouched segments. The decision and its reason persist
+ * as a local constraint.
+ */
+export function setSegmentConstraint(
+  track: Track,
+  left: number,
+  right: number,
+  segmentStartId: string,
+  mode: PropagationMode,
+  reason: string,
+): Track {
+  const existing = constraintForInterval(track, left, right);
+  const baseMode: PropagationMode = existing ? existing.mode : 'joint';
+  const constraint: PropagationConstraint = {
+    left,
+    right,
+    scope: 'segment',
+    mode: baseMode,
+    segmentModes: { ...(existing?.segmentModes ?? {}), [segmentStartId]: mode },
+    segmentReasons: { ...(existing?.segmentReasons ?? {}), [segmentStartId]: reason },
+  };
+  const replaced = upsertConstraint(track, constraint);
+  return bumpRevision(clearAutoInRange(replaced, left, right));
+}
+
+/** Drop a single segment override, falling back to the interval default. */
+export function clearSegmentConstraint(
+  track: Track,
+  left: number,
+  right: number,
+  segmentStartId: string,
+): Track {
+  const existing = constraintForInterval(track, left, right);
+  if (!existing || existing.scope !== 'segment') return track;
+  const segmentModes = { ...existing.segmentModes };
+  const segmentReasons = { ...existing.segmentReasons };
+  delete segmentModes[segmentStartId];
+  delete segmentReasons[segmentStartId];
+  const remaining = Object.keys(segmentModes).length;
+  const next: PropagationConstraint | null = remaining
+    ? { ...existing, segmentModes, segmentReasons }
+    : { ...existing, scope: 'interval', segmentModes: {}, segmentReasons: {} };
+  const replaced = upsertConstraint(track, next);
+  return bumpRevision(clearAutoInRange(replaced, left, right));
+}
+
+/** Remove every joint/independent decision for an interval. */
+export function clearIntervalConstraint(track: Track, left: number, right: number): Track {
+  const constraints = track.constraints.filter((c) => !(c.left === left && c.right === right));
+  const replaced: Track = { ...track, constraints };
+  return bumpRevision(clearAutoInRange(replaced, left, right));
+}
+
+/** Mode in force at a segment start id, honouring local overrides. */
+export function effectiveSegmentMode(
+  constraint: PropagationConstraint | undefined,
+  segmentStartId: string,
+): { mode: PropagationMode; scope: PropagationScope; locallySelected: boolean; reason?: string } {
+  if (!constraint) return { mode: 'joint', scope: 'interval', locallySelected: false };
+  if (constraint.scope === 'segment' && constraint.segmentModes[segmentStartId]) {
+    return {
+      mode: constraint.segmentModes[segmentStartId],
+      scope: 'segment',
+      locallySelected: constraint.segmentModes[segmentStartId] !== constraint.mode,
+      reason: constraint.segmentReasons[segmentStartId],
+    };
+  }
+  return { mode: constraint.mode, scope: constraint.scope, locallySelected: false };
 }
 
 /**

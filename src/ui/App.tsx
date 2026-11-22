@@ -2,8 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CanvasView, type EditTool } from './CanvasView';
 import { useSyntheticClip, SCENARIO_LABELS, SCENARIO_ORDER, truthContour } from './useSyntheticClip';
 import { useTrackSession } from './useTrackSession';
-import { viewFrameAt } from '../core/project';
+import { effectiveSegmentMode, intervalFor, viewFrameAt } from '../core/project';
 import { sampleContour } from '../core/spline';
+import { redrawBurden } from '../core/redraw';
+import type { PropagationConstraint, PropagationMode } from '../core/types';
 import type { ScenarioName, SyntheticClip } from '../bench/synth';
 import type { AutoFrameResult, Contour, PointEvidence, ResolvedPoint, SegmentDiagnostic } from '../core/types';
 import { newId } from '../core/ids';
@@ -196,6 +198,79 @@ function Workbench({ clip }: { clip: SyntheticClip }) {
     return view.segments.filter((s) => s.status !== 'ok');
   }, [view.segments]);
 
+  // The open keyframe interval this frame belongs to, and the stored local
+  // constraint that chooses the propagation model inside it.
+  const interval = useMemo(() => intervalFor(session.track, frame), [session.track, frame]);
+  const constraint: PropagationConstraint | undefined = useMemo(
+    () => (interval ? session.constraintAt(interval.left, interval.right) : undefined),
+    [interval, session],
+  );
+
+  const selectedMode = useMemo(() => {
+    if (!selectedId || !constraint) return undefined;
+    return effectiveSegmentMode(constraint, selectedId);
+  }, [selectedId, constraint]);
+
+  // Per-segment model map for canvas tinting, sourced from the resolved points
+  // so it reflects what actually moved each point on this frame.
+  const segmentModes = useMemo(() => {
+    const map = new Map<string, { mode: PropagationMode; locallySelected: boolean }>();
+    for (const p of view.resolved ?? []) {
+      map.set(p.id, { mode: p.propagationMode, locallySelected: p.locallySelected });
+    }
+    return map;
+  }, [view.resolved]);
+
+  // Reopen-the-lens burden: how much of this auto frame's curve would have to
+  // be redrawn against the analytic truth, recomputed from the stored contour.
+  const reopenBurden = useMemo(() => {
+    if (view.method !== 'auto' || contour.points.length < 3) return null;
+    const truth = clip.truth[frame];
+    if (!truth) return null;
+    return redrawBurden(contour, truth.polygon);
+  }, [view.method, contour, clip, frame]);
+
+  // Frame-to-frame change of the propagated contour (control-point motion and
+  // spline length delta), so tracking can be judged against temporal change
+  // rather than only against the static experiment text.
+  const frameDelta = useMemo(() => {
+    if (frame <= 0 || contour.points.length < 3) return null;
+    const prevView = viewFrameAt(session.track, frame - 1);
+    if (prevView.method === 'none' || prevView.contour.points.length !== contour.points.length) return null;
+    const byId = new Map(prevView.contour.points.map((p) => [p.id, p]));
+    let sum = 0;
+    let max = 0;
+    let n = 0;
+    for (const p of contour.points) {
+      const q = byId.get(p.id);
+      if (!q) continue;
+      const d = Math.hypot(p.x - q.x, p.y - q.y);
+      sum += d;
+      if (d > max) max = d;
+      n++;
+    }
+    if (!n) return null;
+    const lenNow = sampleContour(contour.points, contour.closed, 12);
+    const lenPrev = sampleContour(prevView.contour.points, prevView.contour.closed, 12);
+    const length = (pts: typeof lenNow.points) =>
+      pts.reduce((s, p, i) => s + Math.hypot(p.x - pts[(i + 1) % pts.length].x, p.y - pts[(i + 1) % pts.length].y), 0);
+    return {
+      meanMotion: sum / n,
+      maxMotion: max,
+      lengthDelta: length(lenNow.points) - length(lenPrev.points),
+      prevMethod: prevView.method,
+    };
+  }, [frame, contour, session.track]);
+
+  const switchSelectedSegment = useCallback(
+    (mode: PropagationMode) => {
+      if (!interval || !selectedId) return;
+      const reason = mode === 'independent' ? 'editor: local evidence on this segment' : 'editor: occlusion/weak edge on this segment';
+      session.chooseSegmentMode(interval.left, interval.right, selectedId, mode, reason);
+    },
+    [interval, selectedId, session],
+  );
+
   const stats = useMemo(() => {
     const resolved = view.resolved ?? [];
     return {
@@ -257,6 +332,7 @@ function Workbench({ clip }: { clip: SyntheticClip }) {
           selectedId={selectedId}
           showEvidence={showEvidence}
           showNormals={showNormals}
+          segmentModes={segmentModes}
           onSelect={setSelectedId}
           onDrag={onDrag}
           onDragEnd={onDragEnd}
@@ -291,6 +367,7 @@ function Workbench({ clip }: { clip: SyntheticClip }) {
           </label>
           <div className="legend">
             <span className="swatch" style={{ background: '#4ade80' }} /> observed
+            <span className="swatch" style={{ background: '#38bdf8' }} /> independent segment
             <span className="swatch" style={{ background: '#94a3b8' }} /> inferred / occluded
             <span className="swatch" style={{ background: '#f87171' }} /> conflicting candidates
             <span className="swatch" style={{ background: '#facc15' }} /> weak / regularized
@@ -343,6 +420,147 @@ function Workbench({ clip }: { clip: SyntheticClip }) {
           {session.error && <p className="error-text">{session.error}</p>}
         </section>
 
+        <section className="card" data-testid="propagation-model-card">
+          <h2>Propagation model</h2>
+          {!interval ? (
+            <p className="note">
+              This frame is an anchor. Move to an interpolated frame to choose how its interval is propagated.
+            </p>
+          ) : (
+            <>
+              <p className="note">
+                Interval {interval.left}→{interval.right}. The boundary condition: a uniform choice applies one
+                model between the keyframes; segment scope picks per contour segment.
+              </p>
+              <div className="row" role="group" aria-label="interval model">
+                <button
+                  className={constraint?.scope === 'interval' && constraint.mode === 'joint' ? 'active' : ''}
+                  disabled={session.running}
+                  onClick={() => session.chooseIntervalMode(interval.left, interval.right, 'joint')}
+                  data-testid="mode-joint"
+                >
+                  Joint + shape prior
+                </button>
+                <button
+                  className={constraint?.scope === 'interval' && constraint.mode === 'independent' ? 'active' : ''}
+                  disabled={session.running}
+                  onClick={() => session.chooseIntervalMode(interval.left, interval.right, 'independent')}
+                  data-testid="mode-independent"
+                >
+                  Independent points
+                </button>
+              </div>
+              <div className="row">
+                <button
+                  className={constraint?.scope === 'segment' ? 'active' : ''}
+                  disabled={session.running}
+                  onClick={() =>
+                    session.chooseIntervalMode(
+                      interval.left,
+                      interval.right,
+                      constraint?.mode ?? 'joint',
+                    )
+                  }
+                  data-testid="mode-segment-base"
+                  title="Keep current default; segment overrides below switch individual segments"
+                >
+                  Keep as segment base
+                </button>
+                <button
+                  disabled={session.running || !constraint}
+                  onClick={() => session.clearConstraint(interval.left, interval.right)}
+                  data-testid="clear-constraint"
+                >
+                  Reset decision
+                </button>
+              </div>
+
+              <div className="segment-switch" data-testid="segment-switch">
+                <h3>Selected segment ({selectedId ?? 'none'})</h3>
+                {!selectedId ? (
+                  <p className="note">Select a control point; the segment starting there can switch independently.</p>
+                ) : (
+                  <>
+                    <p className="note">
+                      Current: <b>{selectedMode?.mode ?? 'joint'}</b>
+                      {selectedMode?.locallySelected ? ' (segment-local override)' : constraint?.scope === 'segment' ? ' (interval default)' : ''}
+                      {selectedMode?.reason ? ` — ${selectedMode.reason}` : ''}
+                    </p>
+                    <div className="row">
+                      <button
+                        className={selectedMode?.mode === 'joint' ? 'active' : ''}
+                        disabled={session.running}
+                        onClick={() => switchSelectedSegment('joint')}
+                        data-testid="segment-joint"
+                      >
+                        Joint here
+                      </button>
+                      <button
+                        className={selectedMode?.mode === 'independent' ? 'active' : ''}
+                        disabled={session.running}
+                        onClick={() => switchSelectedSegment('independent')}
+                        data-testid="segment-independent"
+                      >
+                        Independent here
+                      </button>
+                      <button
+                        disabled={session.running}
+                        onClick={() => session.clearSegmentMode(interval.left, interval.right, selectedId)}
+                        data-testid="segment-clear"
+                      >
+                        Clear
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+              <p className="note">
+                Changing a model invalidates this interval's automatic frames; recompute to propagate the new
+                decision. The choice is stored as a local constraint and survives reopening the shot.
+              </p>
+            </>
+          )}
+        </section>
+
+        <section className="card" data-testid="reopen-card">
+          <h2>Reopen lens</h2>
+          <p className="note">Persist keyframes, manual fixes and joint/independent constraints, then reload.</p>
+          <div className="row">
+            <button
+              onClick={() => {
+                const blob = new Blob([session.saveProject()], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'rotoscope-shot.json';
+                a.click();
+                URL.revokeObjectURL(url);
+              }}
+              data-testid="save-shot"
+            >
+              Save shot JSON
+            </button>
+            <label className="file-btn">
+              Reopen shot
+              <input
+                type="file"
+                accept="application/json"
+                data-testid="reopen-shot"
+                onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  try {
+                    session.reopenProject(await file.text());
+                    setFrame(0);
+                  } catch (err) {
+                    window.alert(`Reopen failed: ${String(err)}`);
+                  }
+                }}
+              />
+            </label>
+          </div>
+        </section>
+
         <section className="card">
           <h2>Frame state</h2>
           <dl className="stat-grid">
@@ -364,6 +582,34 @@ function Workbench({ clip }: { clip: SyntheticClip }) {
               These automatic results predate your latest edit and are shown for reference only. Recompute to
               refresh them.
             </p>
+          )}
+          {reopenBurden && (
+            <div className="burden" data-testid="reopen-burden">
+              <h3>Redraw needed if reopened</h3>
+              <dl className="stat-grid">
+                <dt>Points to move</dt>
+                <dd data-testid="burden-points">
+                  {reopenBurden.changedPoints} / {reopenBurden.totalPoints}
+                </dd>
+                <dt>Redraw length (px)</dt>
+                <dd data-testid="burden-length">{reopenBurden.redrawLength.toFixed(1)}</dd>
+                <dt>Curve fraction</dt>
+                <dd data-testid="burden-fraction">{(reopenBurden.redrawFraction * 100).toFixed(1)}%</dd>
+              </dl>
+            </div>
+          )}
+          {frameDelta && (
+            <div className="burden" data-testid="frame-delta">
+              <h3>Change from frame {frame - 1} ({frameDelta.prevMethod})</h3>
+              <dl className="stat-grid">
+                <dt>Mean point motion</dt>
+                <dd data-testid="delta-mean">{frameDelta.meanMotion.toFixed(2)}px</dd>
+                <dt>Max point motion</dt>
+                <dd data-testid="delta-max">{frameDelta.maxMotion.toFixed(2)}px</dd>
+                <dt>Curve length delta</dt>
+                <dd data-testid="delta-length">{frameDelta.lengthDelta.toFixed(2)}px</dd>
+              </dl>
+            </div>
           )}
         </section>
 
@@ -489,6 +735,7 @@ function EvidenceTable({ resolved, evidence }: { resolved: ResolvedPoint[]; evid
         <thead>
           <tr>
             <th>id</th>
+            <th>model</th>
             <th>ncc</th>
             <th>tpl</th>
             <th>edge</th>
@@ -504,6 +751,10 @@ function EvidenceTable({ resolved, evidence }: { resolved: ResolvedPoint[]; evid
             return (
               <tr key={r.id} className={`ev-${state}`} data-conflict={r.conflict ? 'true' : 'false'}>
                 <td>{r.id}</td>
+                <td data-testid={`model-${r.id}`}>
+                  {r.propagationMode}
+                  {r.locallySelected ? ' •' : ''}
+                </td>
                 <td>{fmt(e?.ncc ?? r.ncc)}</td>
                 <td>{fmt(e?.templateNcc ?? 0)}</td>
                 <td>{fmt(e?.edge ?? r.edge)}</td>

@@ -73,20 +73,66 @@ propagation.
 
 ## UI
 
-Run `npm run dev`. The workbench includes:
+### 界面启动（how to launch the interface）
+
+```bash
+npm install
+npm run dev
+```
+
+Then open the local URL Vite prints. The dev server is pinned to
+**http://localhost:5173** (`strictPort`). A production build can be previewed
+instead with `npm run build && npm run preview` (http://localhost:4173). The
+workbench includes:
 
 - Video overlay of the **evaluated** Catmull–Rom spline (not the control
   polygon), coloured per segment by diagnostic status.
 - Control-point display; drag to move, "Add point" to insert on the curve,
   Delete to remove. Edits become keyframes or manual corrections as appropriate.
 - **Actual sampled evidence** for the current auto frame: per-point NCC, anchor
-  template NCC, edge score, confidence, state, and the sampled search offset.
+  template NCC, edge score, confidence, state, the propagation model that moved
+  each point (`joint` / `independent`, with a marker for segment-local
+  selection), and the sampled search offset.
+- **Propagation model card.** Choose one model for the whole keyframe interval
+  (joint + shape prior vs independent points), or select a control point and
+  switch just that contour segment. Each choice is stored as a local
+  `PropagationConstraint`, invalidates the interval's auto frames, and survives
+  saving/reopening the shot. Segment-local independent spans are tinted cyan.
+- **Reopen lens card.** Save the shot (keyframes, manual fixes and constraints)
+  to JSON and reopen it; parsing is strict and throws on a wrong format version
+  or malformed data instead of silently substituting defaults. The card also
+  recomputes the redraw burden (changed control points and redrawn spline
+  length/fraction against ground truth) and the frame-to-frame contour change
+  for the current auto frame.
 - **Suspicious segments** list: weak / occluded / conflicting / regularized spans
   with reasons.
 - Layer panel listing keyframe, manual, and automatic frames.
 - Interval recompute controls with progress and cancellation.
 - A visible stale-result warning on frames whose auto result predates a later
   edit.
+
+The controls are driven by the same tracking kernel the benchmark uses
+(`hybridStep` over the joint and independent trackers). Edit a point, recompute
+forward, and compare the resulting contour against the frame-to-frame readout and
+the evidence table; a point that loses image evidence is fed back as an
+occluded/regularized contour point rather than hidden behind a default value.
+
+## Propagation experiment
+
+`npm run experiment` runs the rotoscoping propagation comparison described in
+[`docs/rotoscoping-propagation-experiment.zh-CN.md`](docs/rotoscoping-propagation-experiment.zh-CN.md)
+(Chinese; title 转描传播实验). On two new synthetic scenarios — `weak-edge`
+(soft edges, low texture, non-rigid deformation) and `local-occlusion` (a compact
+occluder covering only a few segments) — it feeds the **same keyframe curves** to
+three configs: uniform joint, uniform independent, and per-segment local
+selection. It reports contour distance (boundary mean/p95/Hausdorff, control-point
+error) and editing burden (changed points, redrawn spline length/fraction), all
+recomputed from the tracked contours and ground truth by
+`src/core/redraw.ts`/`src/bench/metrics.ts`. A built-in verifier rejects
+non-finite numbers and impossible ratios (exit code 2), so a run cannot mask an
+error with default zeros. Output goes to `bench-out/propagation-experiment.json`;
+a committed snapshot of the measured evidence is kept under
+[`docs/evidence/`](docs/evidence/).
 
 ## Benchmarks
 
@@ -117,11 +163,16 @@ and writes `demo-out/input.mp4`, `demo-out/tracked.mp4`, and
 
 - `npm test` — unit tests for spline evaluation, tracking, and the layered
   project state (identity, stale-revision rejection, observable-side
-  classification, interval invalidation).
-- `npm run e2e` — Playwright golden-path tests: propagation with sampled
-  evidence and suspicious spans, manual correction + interval invalidation +
-  interval recompute, and a stale background job failing to overwrite a manual
-  correction.
+  classification, interval invalidation), plus the independent tracker, the
+  hybrid per-point model selection, propagation-constraint lifecycle and
+  invalidation, redraw-burden measurement, and strict project
+  serialization/parsing.
+- `npm run e2e` — Playwright tests: propagation with sampled evidence and
+  suspicious spans, manual correction + interval invalidation + interval
+  recompute, a stale background job failing to overwrite a manual correction,
+  freehand first-keyframe drawing, and the propagation-model flow (uniform
+  independent switch, single-segment switch with the rest kept joint, and a
+  joint/independent constraint surviving save + reopen).
 
 Playwright needs a Chromium build and its system libraries. If the sandbox lacks
 them, install browser deps for your environment, or point `LD_LIBRARY_PATH` at

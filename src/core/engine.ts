@@ -3,16 +3,17 @@ import { controlNormals } from './spline';
 import {
   makeCandidate,
   mergeCandidates,
-  trackStep,
   zeroMotion,
   type MotionModel,
 } from './tracker';
+import { hybridStep } from './hybridTracker';
 import type {
   Candidate,
   Contour,
   GrayFrame,
   PointTemplate,
   ProgressInfo,
+  PropagationConstraint,
   TrackingParams,
   TrackJobResult,
 } from './types';
@@ -45,6 +46,8 @@ export interface IntervalRunOptions {
   readFrame: FrameReader;
   /** The project revision captured when the job started. */
   revision: number;
+  /** Local joint/independent selection for this interval, if the editor set one. */
+  constraint?: PropagationConstraint;
   onFrame?: (result: TrackJobResult) => void | Promise<void>;
   onProgress?: (info: ProgressInfo) => void;
   /** Called before every frame; return true to abort (stale job / user cancel). */
@@ -184,7 +187,7 @@ export async function runInterval(options: IntervalRunOptions): Promise<{
       if (!curr) break;
       const trustedIds = first ? seed.constrained : new Set(contour.points.map((p) => p.id));
       const untrustedIds = first ? seed.rejected : new Set<string>();
-      const step = trackStep({
+      const step = hybridStep({
         prev: prevFrame,
         curr,
         prevContour: contour,
@@ -196,6 +199,7 @@ export async function runInterval(options: IntervalRunOptions): Promise<{
         templateThreshold: 0.72,
         templateRotation: totalRotation,
         occludedIds,
+        constraint: options.constraint,
       });
       contour = { points: step.points, closed };
       motion = step.motion;
@@ -233,7 +237,7 @@ export async function runInterval(options: IntervalRunOptions): Promise<{
       const trustedIds = first ? seed.constrained : new Set(contour.points.map((p) => p.id));
       const untrustedIds = first ? seed.rejected : new Set<string>();
       // Backward: `prev` is the later frame, `curr` the earlier one.
-      const step = trackStep({
+      const step = hybridStep({
         prev: nextFrame,
         curr,
         prevContour: contour,
@@ -245,6 +249,7 @@ export async function runInterval(options: IntervalRunOptions): Promise<{
         templateThreshold: 0.72,
         templateRotation: -totalRotation,
         occludedIds,
+        constraint: options.constraint,
       });
       contour = { points: step.points, closed };
       motion = step.motion;

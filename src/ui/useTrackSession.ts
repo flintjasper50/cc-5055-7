@@ -7,14 +7,27 @@ import {
   applyManualCorrection,
   bumpRevision,
   clearAllAuto,
+  clearIntervalConstraint,
+  clearSegmentConstraint,
+  constraintForInterval,
   emptyTrack,
   keyframeFrames,
   intervalFor,
   removeManualCorrection,
+  setIntervalConstraint,
   setKeyframe,
+  setSegmentConstraint,
   viewFrameAt,
 } from '../core/project';
-import { DEFAULT_PARAMS, type Contour, type Track, type TrackingParams } from '../core/types';
+import {
+  DEFAULT_PARAMS,
+  type Contour,
+  type ProjectState,
+  type PropagationMode,
+  type Track,
+  type TrackingParams,
+} from '../core/types';
+import { parseProject, serializeProject } from '../core/persistence';
 import type { SyntheticClip } from '../bench/synth';
 import { clipReader } from './useSyntheticClip';
 
@@ -45,6 +58,19 @@ export interface SessionApi extends SessionState {
   recomputeAll: () => Promise<void>;
   recomputeAround: (frame: number) => Promise<void>;
   cancel: () => void;
+  chooseIntervalMode: (left: number, right: number, mode: PropagationMode) => void;
+  chooseSegmentMode: (
+    left: number,
+    right: number,
+    segmentStartId: string,
+    mode: PropagationMode,
+    reason: string,
+  ) => void;
+  clearSegmentMode: (left: number, right: number, segmentStartId: string) => void;
+  clearConstraint: (left: number, right: number) => void;
+  constraintAt: (left: number, right: number) => Track['constraints'][number] | undefined;
+  saveProject: () => string;
+  reopenProject: (text: string) => void;
 }
 
 function seedFor(track: Track, frame: number): AnchorSeed | null {
@@ -103,6 +129,7 @@ export function useTrackSession(clip: SyntheticClip | null): SessionApi {
 
       const token = ++jobToken.current;
       cancelledRef.current = false;
+      const constraint = constraintForInterval(current, left, right);
 
       await runInterval({
         left: leftSeed,
@@ -110,6 +137,7 @@ export function useTrackSession(clip: SyntheticClip | null): SessionApi {
         params: { ...current.params },
         readFrame,
         revision: capturedRevision,
+        constraint,
         shouldAbort: () => cancelledRef.current || jobToken.current !== token,
         yieldFn: () => new Promise<void>((r) => setTimeout(r, 0)),
         onProgress: (p) => {
@@ -218,6 +246,52 @@ export function useTrackSession(clip: SyntheticClip | null): SessionApi {
     setTrack((prev) => bumpRevision(clearAllAuto(prev)));
   }, []);
 
+  const chooseIntervalMode = useCallback((left: number, right: number, mode: PropagationMode) => {
+    setTrack((prev) => setIntervalConstraint(prev, left, right, mode));
+  }, []);
+
+  const chooseSegmentMode = useCallback(
+    (left: number, right: number, segmentStartId: string, mode: PropagationMode, reason: string) => {
+      setTrack((prev) => setSegmentConstraint(prev, left, right, segmentStartId, mode, reason));
+    },
+    [],
+  );
+
+  const clearSegmentMode = useCallback((left: number, right: number, segmentStartId: string) => {
+    setTrack((prev) => clearSegmentConstraint(prev, left, right, segmentStartId));
+  }, []);
+
+  const clearConstraint = useCallback((left: number, right: number) => {
+    setTrack((prev) => clearIntervalConstraint(prev, left, right));
+  }, []);
+
+  const constraintAt = useCallback(
+    (left: number, right: number) => constraintForInterval(trackRef.current, left, right),
+    [],
+  );
+
+  const saveProject = useCallback((): string => {
+    const project: ProjectState = {
+      version: 1,
+      videoName: 'synthetic-clip',
+      width: clip?.width ?? 0,
+      height: clip?.height ?? 0,
+      fps: clip?.fps ?? 30,
+      frameCount: clip?.frameCount ?? 0,
+      tracks: [trackRef.current],
+      selectedTrackId: trackRef.current.id,
+    };
+    return serializeProject(project);
+  }, [clip]);
+
+  const reopenProject = useCallback((text: string) => {
+    const project = parseProject(text);
+    const first = project.tracks[0];
+    if (!first) throw new Error('reopened project contains no tracks');
+    jobToken.current++;
+    setTrack(first);
+  }, []);
+
   return {
     track,
     running,
@@ -233,6 +307,13 @@ export function useTrackSession(clip: SyntheticClip | null): SessionApi {
     recomputeAll,
     recomputeAround,
     cancel,
+    chooseIntervalMode,
+    chooseSegmentMode,
+    clearSegmentMode,
+    clearConstraint,
+    constraintAt,
+    saveProject,
+    reopenProject,
   };
 }
 

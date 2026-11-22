@@ -1,0 +1,36 @@
+{
+  "name": "rotoscope-contour",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Keyframed rotoscoping contour tracking tool (contour control data, not alpha mattes)",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --port 4173 --strictPort",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "bench": "tsx src/bench/run-bench.ts",
+    "make-demo": "tsx scripts/make-demo.ts",
+    "e2e": "playwright test",
+    "check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.65.1",
+    "@types/node": "^26.6.6",
+    "@types/pngjs": "^6.0.5",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.3.0",
+    "ffmpeg-static": "^5.3.0",
+    "pngjs": "^7.0.0",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.8",
+    "vitest": "^5.1.1"
+  }
+}

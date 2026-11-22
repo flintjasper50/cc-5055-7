@@ -23,3 +23,9 @@ __pycache__/
 *.log
 .env
 .env.*
+
+# Project artifacts
+bench-out/
+demo-out/
+test-results/
+playwright-report/
